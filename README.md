@@ -1,198 +1,211 @@
-# 🫀 StrokeGuard AI — Production Build
-**Nhóm 9 | NCKH 2026 | ĐH Nông Lâm TP.HCM**
-GVHD: TS. Nguyễn Thị Phương Trâm
+# StrokeGuard AI - Hướng dẫn cài đặt
 
----
+Hệ thống dự báo sớm nguy cơ đột quỵ, kết hợp dữ liệu lâm sàng và dữ liệu sinh học thu thập từ Samsung Galaxy Fit 3 qua Android Health Connect API. Hệ thống gồm hai phần: backend FastAPI (chạy mô hình Machine Learning) và ứng dụng di động Flutter.
 
-## 📊 Kết quả mô hình (metrics thật từ notebook)
+## Mục lục
 
-| Mô hình | Accuracy | Recall | F1-Score | AUC-ROC | Threshold |
-|---|---|---|---|---|---|
-| Logistic Regression | 98.92% | **86.00%** | 0.8866 | **0.9871** | 0.82 |
-| Decision Tree | 85.39% | **86.00%** | 0.3660 | 0.8890 | 0.87 |
-| Random Forest | 94.12% | **88.00%** | 0.5946 | 0.9699 | 0.33 |
+1. [Tổng quan kiến trúc](#tổng-quan-kiến-trúc)
+2. [Yêu cầu phần cứng và phần mềm](#yêu-cầu-phần-cứng-và-phần-mềm)
+3. [Cài đặt FastAPI Backend](#cài-đặt-fastapi-backend)
+4. [Cài đặt Flutter App](#cài-đặt-flutter-app)
+5. [Kiểm tra sau triển khai](#kiểm-tra-sau-triển-khai)
+6. [Xử lý sự cố thường gặp](#xử-lý-sự-cố-thường-gặp)
 
-> Cả 3 mô hình đạt **Recall > 85%** (mục tiêu đề cương). LR có AUC-ROC cao nhất (0.9871).
+## Tổng quan kiến trúc
 
----
-
-## 📁 Cấu trúc project
+Hệ thống hoạt động theo mô hình mạng LAN cục bộ: máy tính chạy FastAPI backend và điện thoại chạy Flutter app phải cùng kết nối một mạng WiFi.
 
 ```
-strokeguard_final/
-├── backend/
-│   ├── main.py              ← FastAPI (STT6 Lâm Thị Hoàng Như)
-│   ├── requirements.txt
-│   └── models/              ← ✅ Đã có 9 file .pkl thật
-│       ├── logistic_regression.pkl
-│       ├── decision_tree.pkl
-│       ├── random_forest.pkl
-│       ├── scaler.pkl
-│       ├── feature_columns.pkl
-│       ├── lr_threshold.pkl  (0.82)
-│       ├── dt_threshold.pkl  (0.87)
-│       ├── rf_threshold.pkl  (0.33)
-│       └── model_metrics.pkl
-├── flutter_app/
-│   ├── lib/
-│   │   ├── main.dart               STT8 - Cù Thị Hoài Ngọc
-│   │   ├── models/models.dart      STT7 - Lê Thị Kim Ngân
-│   │   ├── theme/app_theme.dart    STT7
-│   │   ├── services/
-│   │   │   ├── api_service.dart    STT6 - Lâm Thị Hoàng Như
-│   │   │   └── health_service.dart STT5 - Trần Thị Hiền
-│   │   └── screens/
-│   │       ├── register_screen.dart   STT2 - Nguyễn Ngọc Thùy Dương
-│   │       ├── home_screen.dart       STT3 - Nguyễn Thị Quỳnh Như
-│   │       ├── prediction_screen.dart STT1 - Trần Thị Cẩm Tú
-│   │       ├── history_screen.dart    STT4 - Phan Thị Yến Ngọc
-│   │       └── profile_screen.dart    STT5 - Trần Thị Hiền
-│   ├── android/app/src/main/AndroidManifest.xml   STT8
-│   └── pubspec.yaml
-└── StrokeGuard_Train.ipynb  ← Notebook Colab (train lại nếu cần)
+Samsung Galaxy Fit 3 → Health Connect → Flutter App → FastAPI Backend → Mô hình ML
+                                              ↓
+                                          Firebase
+                                    (Auth + Firestore)
 ```
 
----
+## Yêu cầu phần cứng và phần mềm
 
-## ⚡ CHẠY NGAY (Backend đã có .pkl)
+| Thành phần | Yêu cầu tối thiểu | Cấu hình đã kiểm thử thực tế |
+|---|---|---|
+| Máy chủ (FastAPI) | RAM 4GB, Python 3.10+, port 8000 mở | Laptop Windows 11, Intel Core i5-1235U, RAM 8GB, Python 3.11.5, Anaconda 23.7 |
+| Thiết bị di động | Android 10+, Health Connect 1.0+ | Samsung Galaxy A36 5G, Android 15, Health Connect v1.0.0-alpha11 |
+| Thiết bị đeo | Samsung Galaxy Fit 3 hoặc thiết bị tương thích Health Connect | Samsung Galaxy Fit 3 (SM-R390), firmware 2.0.0.50, đồng bộ qua Samsung Health 6.x |
+| Mạng | WiFi LAN cùng subnet | WiFi 802.11ac |
+| Firebase | Dự án Firebase với Firestore + Auth bật | Region: asia-southeast1 (Singapore) |
 
-### Backend
+## Cài đặt FastAPI Backend
+
+### Bước 1: Cài đặt Python dependencies
+
 ```bash
-cd backend
+# Tạo môi trường ảo (khuyến nghị)
+conda create -n strokeguard python=3.11
+conda activate strokeguard
 
-# ⚠️ Cài đúng version sklearn khớp với pkl
+# Cài đặt các thư viện cần thiết
 pip install fastapi uvicorn scikit-learn==1.6.1 pandas joblib numpy
 
+# Kiểm tra phiên bản scikit-learn (quan trọng: model.pkl cần khớp phiên bản)
+python -c "import sklearn; print(sklearn.__version__)"
+# Output mong đợi: 1.6.1
+```
+
+### Bước 2: Chuẩn bị file mô hình (.pkl)
+
+Cấu trúc thư mục backend cần có dạng:
+
+```
+strokeguard-backend/
+├── main.py                      # File FastAPI chính
+└── models/                      # Thư mục chứa các file mô hình
+    ├── logistic_regression.pkl
+    ├── decision_tree.pkl
+    ├── random_forest.pkl
+    ├── scaler.pkl
+    ├── feature_columns.pkl
+    ├── model_metrics.pkl
+    ├── lr_threshold.pkl
+    ├── dt_threshold.pkl
+    └── rf_threshold.pkl
+```
+
+### Bước 3: Chạy FastAPI server
+
+```bash
+cd strokeguard-backend/
+
+# Chạy server, lắng nghe trên tất cả interface (quan trọng để điện thoại kết nối được)
 uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-Mở trình duyệt: **http://localhost:8000/docs** → test /predict ngay
+Output mong đợi khi khởi động thành công:
 
-**Verify nhanh:**
-```bash
-curl http://localhost:8000/health
-# Kết quả mong đợi: "simulation_mode": false  ← models đã load
+```
+INFO:    Started server process [XXXXX]
+INFO:    Waiting for application startup.
+INFO:    Models ready: True
+INFO:    Application startup complete.
+INFO:    Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
 ```
 
-### Flutter App
-```bash
-cd flutter_app
+Kiểm tra qua trình duyệt trên máy chủ:
+- `http://localhost:8000/health`
+- `http://localhost:8000/docs` (Swagger UI tự động)
 
-# Bước 1: Setup Firebase (xem hướng dẫn bên dưới)
-# Bước 2:
+Lấy IP LAN của máy chủ để cấu hình trong Flutter app:
+
+```bash
+ipconfig    # Windows
+ifconfig    # Linux/Mac -> tìm IPv4 Address của WiFi adapter
+```
+
+## Cài đặt Flutter App
+
+### Bước 1: Cài đặt Flutter SDK và chuẩn bị dự án
+
+```bash
+# Cài Flutter SDK (xem flutter.dev/install)
+flutter --version
+# Kiểm tra: Flutter 3.x.x, Dart 3.x.x
+```
+
+Clone hoặc giải nén source code dự án. Cấu trúc thư mục Flutter app:
+
+```
+strokeguard-app/
+├── lib/
+│   ├── main.dart
+│   ├── models/models.dart
+│   ├── screens/
+│   │   ├── register_screen.dart
+│   │   ├── home_screen.dart
+│   │   ├── prediction_screen.dart
+│   │   ├── profile_screen.dart
+│   │   └── history_screen.dart
+│   ├── services/
+│   │   ├── health_service.dart
+│   │   └── api_service.dart
+│   └── theme/app_theme.dart
+├── android/
+│   └── app/src/main/AndroidManifest.xml   # khai báo quyền Health Connect
+├── pubspec.yaml
+└── google-services.json                    # tải từ Firebase Console
+```
+
+### Bước 2: Cấu hình IP backend và Firebase
+
+Sửa file `lib/services/api_service.dart`, thay IP bằng địa chỉ LAN thực tế của máy chủ FastAPI:
+
+```dart
+// File: lib/services/api_service.dart
+static const String baseUrl = 'http://<IP-MAY-CHU>:8000';
+// Ví dụ: 'http://192.168.1.105:8000'
+```
+
+Tải file `google-services.json` từ Firebase Console > Project Settings > Android app, đặt vào `android/app/google-services.json`. Đảm bảo `applicationId` khớp với cấu hình Firebase.
+
+### Bước 3: Khai báo quyền Health Connect trong AndroidManifest.xml
+
+```xml
+<!-- android/app/src/main/AndroidManifest.xml -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <application ...>
+    <!-- Khai báo intent filter để Health Connect nhận ra app này -->
+    <activity android:name=".MainActivity" ...>
+      <intent-filter>
+        <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE"/>
+      </intent-filter>
+    </activity>
+  </application>
+
+  <!-- Các quyền cần thiết -->
+  <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION"/>
+  <uses-permission android:name="android.permission.BODY_SENSORS"/>
+  <uses-permission android:name="android.permission.health.READ_HEART_RATE"/>
+  <uses-permission android:name="android.permission.health.READ_BLOOD_OXYGEN"/>
+  <uses-permission android:name="android.permission.health.READ_SLEEP"/>
+  <uses-permission android:name="android.permission.health.READ_STEPS"/>
+  <uses-permission android:name="android.permission.health.READ_ACTIVE_CALORIES_BURNED"/>
+  <uses-permission android:name="android.permission.health.READ_BODY_MASS_INDEX"/>
+</manifest>
+```
+
+### Bước 4: Build và chạy app trên thiết bị thực
+
+```bash
+# Cài đặt dependencies
 flutter pub get
+
+# Kết nối điện thoại Android qua USB (bật Developer Options + USB Debugging)
+flutter devices
+# Xác nhận thiết bị hiện trong danh sách
+
+# Build và chạy (chế độ debug)
 flutter run
+
+# Build APK phát hành (production)
+flutter build apk --release
+# APK ở: build/app/outputs/flutter-apk/app-release.apk
 ```
+
+## Kiểm tra sau triển khai
+
+| # | Bước kiểm tra | Cách kiểm tra | Kết quả mong đợi |
+|---|---|---|---|
+| 1 | FastAPI đang chạy | Truy cập `http://[IP]:8000/health` từ trình duyệt máy chủ | `{"status": "online", "models_loaded": {"logistic_regression": true, ...}}` |
+| 2 | Kết nối mạng LAN | Truy cập `http://[IP]:8000` từ trình duyệt điện thoại (cùng WiFi) | `{"app": "StrokeGuard AI", "version": "2.0.0"}` |
+| 3 | Firebase kết nối | Đăng ký tài khoản mới trong app | Document xuất hiện trong Firestore Console > users |
+| 4 | Health Connect hoạt động | Mở tab Home, chấp nhận quyền khi được hỏi | Badge "Đã kết nối" trong tab Hồ Sơ, giá trị thực từ Fit 3 (không có banner mô phỏng) |
+| 5 | Dự báo hoạt động end-to-end | Nhấn "Phân tích nguy cơ đột quỵ" trong tab Phân tích | Gauge chart hiển thị kết quả, kết quả xuất hiện trong Lịch sử |
+
+## Xử lý sự cố thường gặp
+
+Nếu dự báo thất bại với lỗi **"connection refused"**, kiểm tra lần lượt:
+
+1. FastAPI đang chạy với `--host 0.0.0.0` (không phải `127.0.0.1`).
+2. Tường lửa Windows đã cho phép port 8000.
+3. Điện thoại và máy chủ cùng mạng WiFi.
+4. IP cấu hình trong `api_service.dart` đúng với IP LAN hiện tại của máy chủ (IP có thể đổi mỗi lần kết nối lại WiFi).
 
 ---
 
-## 🔥 Setup Firebase (bắt buộc)
-
-### 1. Tạo project
-1. Vào https://console.firebase.google.com → **Add project** → đặt tên `strokeguard-nhom9`
-2. **Authentication** → Sign-in method → **Email/Password** → Enable
-3. **Firestore Database** → Create → **Start in test mode** → region `asia-southeast1`
-
-### 2. Kết nối Flutter (chạy 1 lần)
-```bash
-# Cài FlutterFire CLI
-dart pub global activate flutterfire_cli
-
-# Trong thư mục flutter_app/
-cd flutter_app
-flutterfire configure --project=strokeguard-nhom9
-```
-> Tự tạo `lib/firebase_options.dart` + `android/app/google-services.json`
-
-### 3. Cập nhật main.dart
-Sau khi có `firebase_options.dart`, sửa `lib/main.dart`:
-```dart
-import 'firebase_options.dart';   // thêm dòng này
-
-// Trong hàm main():
-await Firebase.initializeApp(
-  options: DefaultFirebaseOptions.currentPlatform,  // thêm dòng này
-);
-```
-
-### 4. Firestore Rules
-```
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    match /users/{uid} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
-      match /predictions/{pid} {
-        allow read, write: if request.auth != null && request.auth.uid == uid;
-      }
-    }
-  }
-}
-```
-
----
-
-## 📱 Test trên điện thoại thật (Samsung Fit 3)
-
-1. Cài **Health Connect** từ CH Play
-2. Kết nối Samsung Galaxy Fit 3 → Galaxy Wearable app
-3. Đổi IP trong `lib/services/api_service.dart`:
-```dart
-static const String baseUrl = 'http://192.168.x.x:8000'; // IP máy tính cùng WiFi
-```
-
----
-
-## 🧪 Test /predict bằng curl
-```bash
-curl -X POST http://localhost:8000/predict \
-  -H "Content-Type: application/json" \
-  -d '{
-    "gender": 1, "age": 55, "hypertension": 1, "heart_disease": 0,
-    "ever_married": 1, "Residence_type": 1, "work_type": "Private",
-    "smoking_status": "formerly smoked", "avg_glucose_level": 180.5,
-    "bmi": 28.3, "heart_rate": 85, "spo2": 96.5,
-    "sleep_hours": 5.5, "stress_score": 72.0
-  }'
-```
-**Kết quả mong đợi:**
-```json
-{
-  "logistic_regression": 0.9501,
-  "decision_tree": 0.9963,
-  "random_forest": 0.9822,
-  "ensemble": 0.9762,
-  "risk_level": "CAO",
-  "simulation_mode": false
-}
-```
-
----
-
-## ⚠️ Lưu ý về scikit-learn version
-
-Các file .pkl được train với `scikit-learn==1.6.1`.  
-Nếu máy đang dùng version khác, chạy:
-```bash
-pip install scikit-learn==1.6.1
-```
-Hoặc dùng virtual environment:
-```bash
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-```
-
----
-
-## ✅ Checklist trước khi demo
-
-- [ ] `cd backend && uvicorn main:app --port 8000` → `/health` trả `simulation_mode: false`
-- [ ] Firebase đã setup → có `google-services.json`
-- [ ] `flutter pub get` không lỗi
-- [ ] `flutter run` chạy được
-- [ ] Đăng ký → nhập hồ sơ → Phân tích → thấy kết quả %
-
----
-
-*StrokeGuard AI — Nhóm 9 NCKH 2026 | Recall > 85% ✅*
+*Tài liệu này được tổng hợp từ báo cáo đồ án "Ứng dụng Machine Learning trong phát hiện sớm nguy cơ đột quỵ dựa trên dữ liệu sinh học từ đồng hồ thông minh Samsung Galaxy Fit 3", mục 3.13 - Môi trường triển khai và hướng dẫn cài đặt.*
